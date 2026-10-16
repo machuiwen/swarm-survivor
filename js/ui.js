@@ -5,6 +5,8 @@ import { iconURL } from './icons.js';
 import { bus, fmtTime } from './util.js';
 import { sfx, setAudioOpts, initAudio, setIntensity } from './audio.js';
 import { release } from './input.js';
+import { t, getLang, setLang } from './i18n.js';
+import { platformMuted, onPlatformSettings } from './platform.js';
 
 const $ = (id) => document.getElementById(id);
 const SCREENS = ['s-title', 's-chars', 's-shop', 's-ach', 's-levelup', 's-chest', 's-pause', 's-over'];
@@ -31,12 +33,39 @@ function on(id, fn) {
 
 function applyAudio() {
   const s = meta.save.settings;
-  setAudioOpts({ muted: s.muted, music: s.music, sfx: s.sfx });
-  $('btn-mute').innerHTML = s.muted ? SPEAKER_OFF : SPEAKER_ON;
-  const lab = (b, name, v) => { b.textContent = name + '：' + (v ? '开' : '关'); b.classList.toggle('off', !v); };
-  lab($('t-music'), '音乐', s.music); lab($('p-music'), '音乐', s.music);
-  lab($('t-sfx'), '音效', s.sfx); lab($('p-sfx'), '音效', s.sfx);
-  lab($('p-nums'), '伤害数字', s.dmgNums); lab($('p-shake'), '屏幕震动', s.shake);
+  const muted = s.muted || platformMuted();
+  setAudioOpts({ muted, music: s.music, sfx: s.sfx });
+  $('btn-mute').innerHTML = muted ? SPEAKER_OFF : SPEAKER_ON;
+  const lab = (b, key, v) => {
+    b.textContent = t('opt.fmt', { name: t(key), v: t(v ? 'opt.on' : 'opt.off') });
+    b.classList.toggle('off', !v);
+  };
+  lab($('t-music'), 'opt.music', s.music); lab($('p-music'), 'opt.music', s.music);
+  lab($('t-sfx'), 'opt.sfx', s.sfx); lab($('p-sfx'), 'opt.sfx', s.sfx);
+  lab($('p-nums'), 'opt.nums', s.dmgNums); lab($('p-shake'), 'opt.shake', s.shake);
+}
+
+// in-game confirm dialog; window.confirm() may be blocked inside the platform iframe
+let confirmYes = null;
+function askConfirm(msg, onYes) {
+  $('confirm-msg').textContent = msg;
+  confirmYes = onYes;
+  $('confirm').classList.remove('hidden');
+}
+function closeConfirm(ok) {
+  const fn = confirmYes;
+  confirmYes = null;
+  $('confirm').classList.add('hidden');
+  if (ok && fn) fn();
+}
+
+function switchLang() {
+  const next = getLang() === 'zh' ? 'en' : 'zh';
+  meta.save.settings.lang = next;
+  saveMeta();
+  setLang(next);
+  applyAudio();
+  renderTitle();
 }
 
 export function toggleMute() {
@@ -49,12 +78,10 @@ function renderTitle() {
   $('t-coins').textContent = meta.save.coins;
   const st = meta.save.stats;
   $('t-record').textContent = st.runs
-    ? '最佳：存活 ' + fmtTime(st.bestTime) + ' · 击杀 ' + st.bestKills + ' · 等级 ' + st.bestLevel + (st.wins ? ' · 胜利 ' + st.wins + ' 次' : '')
-    : '第一次来？先活过 5 分钟试试。';
+    ? t('menu.best', { time: fmtTime(st.bestTime), kills: st.bestKills, level: st.bestLevel }) + (st.wins ? t('menu.wins', { n: st.wins }) : '')
+    : t('menu.firstTime');
   const touch = matchMedia('(hover: none)').matches;
-  $('t-hint').textContent = touch
-    ? '只管走位，武器会自动攻击。按住屏幕任意位置拖动即可移动。'
-    : '只管走位，武器会自动攻击。WASD / 方向键移动，Esc 暂停，1 2 3 选择升级。';
+  $('t-hint').textContent = t(touch ? 'menu.hintTouch' : 'menu.hintKeys');
 }
 
 export function goTitle() {
@@ -77,9 +104,9 @@ function renderChars() {
     el.innerHTML =
       '<img src="' + iconURL(c.id, false, 128) + '" alt="">' +
       '<div class="cinfo"><div class="cn">' + esc(c.name) + '</div><div class="ct">' + esc(c.title) + '</div>' +
-      '<div class="cw"><img src="' + iconURL(w.id) + '" alt="">初始武器：' + esc(w.name) + '</div>' +
+      '<div class="cw"><img src="' + iconURL(w.id) + '" alt="">' + esc(t('chars.weapon', { name: w.name })) + '</div>' +
       '<div class="cb">' + esc(c.bonusText) + '</div><div class="cd">' + esc(c.desc) + '</div></div>' +
-      (unlocked ? '' : '<div class="lock"><button class="btn small unlock"><img class="coin-ico" src="' + iconURL('coin') + '" alt=""> ' + c.cost + ' 解锁</button></div>');
+      (unlocked ? '' : '<div class="lock"><button class="btn small unlock">' + esc(t('chars.unlock')) + ' <img class="coin-ico" src="' + iconURL('coin') + '" alt=""> ' + c.cost + '</button></div>');
     el.addEventListener('click', (e) => {
       initAudio();
       if (!unlocked) {
@@ -95,8 +122,13 @@ function renderChars() {
   $('c-go').disabled = !meta.save.chars[selChar];
 }
 
+function lastChar() { return meta.save.chars[meta.save.lastChar] ? meta.save.lastChar : 'nia'; }
+
+// Play goes straight into a run with the last hero: one click from the menu to gameplay
+function quickStart() { beginRun(lastChar()); }
+
 function openChars() {
-  selChar = meta.save.chars[meta.save.lastChar] ? meta.save.lastChar : 'nia';
+  selChar = lastChar();
   renderChars();
   show('s-chars');
 }
@@ -125,7 +157,7 @@ function renderShop() {
     el.innerHTML =
       '<img src="' + iconURL(item.icon) + '" alt=""><div class="tn">' + esc(item.name) + '</div>' +
       '<button class="btn buy"' + (!maxed && meta.save.coins < cost ? ' disabled' : '') + '>' +
-      (maxed ? '已满级' : '<img src="' + iconURL('coin') + '" alt="">' + cost) + '</button>' +
+      (maxed ? esc(t('shop.maxed')) : '<img src="' + iconURL('coin') + '" alt="">' + cost) + '</button>' +
       '<div class="td">' + esc(item.desc) + '<div class="pips">' + pips + '</div></div>';
     el.querySelector('.buy').addEventListener('click', () => {
       initAudio();
@@ -152,15 +184,15 @@ function renderAch() {
     if (done) n++;
     const el = document.createElement('div');
     el.className = 'ach' + (done ? ' done' : '');
-    el.innerHTML = '<div class="an">' + (done ? '★ ' : '') + esc(a.name) + '</div><div class="ad">' + esc(a.desc) + '</div><div class="ar">奖励 ' + a.reward + ' 金币</div>';
+    el.innerHTML = '<div class="an">' + (done ? '★ ' : '') + esc(a.name) + '</div><div class="ad">' + esc(a.desc) + '</div><div class="ar">' + esc(t('ach.reward', { n: a.reward })) + '</div>';
     list.appendChild(el);
   }
-  $('ach-count').textContent = '已完成 ' + n + ' / ' + ACHIEVEMENTS.length;
+  $('ach-count').textContent = t('ach.count', { n, total: ACHIEVEMENTS.length });
   const s = meta.save.stats;
   $('ach-stats').innerHTML = [
-    ['游戏局数', s.runs], ['胜利次数', s.wins], ['总击杀', s.totalKills], ['累计金币', s.totalCoins],
-    ['首领击破', s.bossKills], ['武器进化', s.evolutions], ['最长存活', fmtTime(s.bestTime)], ['最高连杀', s.bestCombo],
-  ].map(([k, v]) => '<div class="st"><div class="k">' + k + '</div><div class="v">' + v + '</div></div>').join('');
+    ['stat.runs', s.runs], ['stat.wins', s.wins], ['stat.totalKills', s.totalKills], ['stat.totalCoins', s.totalCoins],
+    ['stat.bossKills', s.bossKills], ['stat.evolutions', s.evolutions], ['stat.bestTime', fmtTime(s.bestTime)], ['stat.bestCombo', s.bestCombo],
+  ].map(([k, v]) => '<div class="st"><div class="k">' + esc(t(k)) + '</div><div class="v">' + v + '</div></div>').join('');
 }
 
 // ---------------- HUD
@@ -189,7 +221,7 @@ export function updateHud() {
     $('timer').textContent = fmtTime(G.t);
     $('timer').classList.toggle('late', G.t > RUN_TIME - 60);
   }
-  if (c.k !== G.kills) { c.k = G.kills; $('kills').textContent = '击杀 ' + G.kills; }
+  if (c.k !== G.kills) { c.k = G.kills; $('kills').textContent = t('hud.kills', { n: G.kills }); }
   const co = Math.floor(G.coins);
   if (c.co !== co) { c.co = co; $('coin-n').textContent = co; }
   const sig = G.weapons.map((w) => w.id + w.level + (w.evo ? 'e' : '')).join() + '|' + G.passives.map((p) => p.id + p.level).join();
@@ -227,7 +259,7 @@ function nextToast() {
   toastBusy = true;
   const el = document.createElement('div');
   el.className = 'toast';
-  el.innerHTML = '成就解锁：' + esc(a.name) + '<small>+' + a.reward + ' 金币</small>';
+  el.innerHTML = esc(t('ach.toast', { name: a.name })) + '<small>' + esc(t('ach.toastCoins', { n: a.reward })) + '</small>';
   $('toasts').appendChild(el);
   sfx.ach();
   setTimeout(() => { el.remove(); nextToast(); }, 2600);
@@ -256,7 +288,7 @@ function showCards(opts) {
     box.appendChild(el);
     setTimeout(() => sfx.card(), i * 90);
   });
-  $('reroll-n').textContent = G.rerolls;
+  $('b-reroll').textContent = t('lv.reroll', { n: G.rerolls });
   $('b-reroll').classList.toggle('hidden', G.rerolls <= 0);
   cardLock = performance.now() + 380; // stop a held tap from instantly choosing
   clearBanner();
@@ -288,7 +320,7 @@ function showChest({ items, coins }) {
   });
   const cc = $('chest-coins');
   cc.style.setProperty('--d', (1 + items.length * 0.18).toFixed(2) + 's');
-  cc.textContent = '+' + coins + ' 金币';
+  cc.textContent = t('chest.coins', { n: coins });
   cardLock = performance.now() + 900;
   clearBanner();
   show('s-chest');
@@ -297,35 +329,36 @@ function showChest({ items, coins }) {
 function renderPause() {
   const wl = $('p-weapons');
   wl.innerHTML = G.weapons.map((w) =>
-    '<div class="build-item' + (w.evo ? ' evo' : '') + '"><img src="' + iconURL(w.id, w.evo) + '" alt=""><div><div class="bn">' + esc(w.evo ? w.def.evo.name : w.def.name) + '</div><div class="bl">' + (w.evo ? '已进化' : 'Lv.' + w.level + ' / 6') + '</div></div><div class="bd">伤害 ' + Math.round(w.dealt) + '<br>击杀 ' + w.kills + '</div></div>').join('') || '<div class="empty">无</div>';
+    '<div class="build-item' + (w.evo ? ' evo' : '') + '"><img src="' + iconURL(w.id, w.evo) + '" alt=""><div><div class="bn">' + esc(w.evo ? w.def.evo.name : w.def.name) + '</div><div class="bl">' + esc(w.evo ? t('pause.evolved') : t('pause.lvOf', { n: w.level, max: 6 })) + '</div></div><div class="bd">' + esc(t('pause.dmg', { n: Math.round(w.dealt) })) + '<br>' + esc(t('pause.kills', { n: w.kills })) + '</div></div>').join('') || '<div class="empty">' + esc(t('pause.none')) + '</div>';
   const pl = $('p-passives');
   pl.innerHTML = G.passives.map((p) =>
-    '<div class="build-item"><img src="' + iconURL(p.id) + '" alt=""><div><div class="bn">' + esc(p.def.name) + '</div><div class="bl">Lv.' + p.level + ' / ' + p.def.max + ' · ' + esc(p.def.desc) + '</div></div></div>').join('') || '<div class="empty">还没有道具</div>';
+    '<div class="build-item"><img src="' + iconURL(p.id) + '" alt=""><div><div class="bn">' + esc(p.def.name) + '</div><div class="bl">' + esc(t('pause.lvOf', { n: p.level, max: p.def.max })) + ' · ' + esc(p.def.desc) + '</div></div></div>').join('') || '<div class="empty">' + esc(t('pause.noItems')) + '</div>';
   const s = G.stats;
   const pct = (v) => (v >= 0 ? '+' : '') + Math.round(v * 100) + '%';
   $('p-stats').innerHTML = [
-    ['生命', Math.ceil(G.p.hp) + ' / ' + G.p.maxHp], ['伤害', pct(s.might - 1)], ['冷却', pct(s.cd - 1)], ['范围', pct(s.area - 1)],
-    ['移速', pct(s.speed - 1)], ['暴击率', Math.round(s.crit * 100) + '%'], ['护甲', s.armor], ['回复', s.regen.toFixed(1) + '/秒'],
-    ['拾取范围', Math.round(s.magnet)], ['投射物', '+' + s.amount], ['经验', pct(s.growth - 1)], ['复活', G.revives],
-  ].map(([k, v]) => '<div class="st"><div class="k">' + k + '</div><div class="v">' + v + '</div></div>').join('');
+    ['ps.hp', Math.ceil(G.p.hp) + ' / ' + G.p.maxHp], ['ps.might', pct(s.might - 1)], ['ps.cd', pct(s.cd - 1)], ['ps.area', pct(s.area - 1)],
+    ['ps.speed', pct(s.speed - 1)], ['ps.crit', Math.round(s.crit * 100) + '%'], ['ps.armor', s.armor], ['ps.regen', t('ps.regenFmt', { n: s.regen.toFixed(1) })],
+    ['ps.magnet', Math.round(s.magnet)], ['ps.amount', '+' + s.amount], ['ps.growth', pct(s.growth - 1)], ['ps.revives', G.revives],
+  ].map(([k, v]) => '<div class="st"><div class="k">' + esc(t(k)) + '</div><div class="v">' + v + '</div></div>').join('');
   applyAudio();
 }
 
 function renderOver(sm) {
-  const t = $('o-title');
-  t.textContent = sm.won ? '胜利！' : '阵亡';
-  t.className = sm.won ? 'win' : 'lose';
-  $('o-sub').textContent = sm.char.name + ' · ' + (sm.won ? '你在虫潮中坚持到了黎明。' : '虫群吞没了你。再来一次，会更强。');
+  const title = $('o-title');
+  title.textContent = t(sm.won ? 'over.win' : 'over.lose');
+  title.className = sm.won ? 'win' : 'lose';
+  $('o-sub').textContent = sm.char.name + ' · ' + t(sm.won ? 'over.winSub' : 'over.loseSub');
   const r = sm.rec;
   $('o-stats').innerHTML = [
-    ['存活时间', fmtTime(sm.time), r.time], ['击杀', sm.kills, r.kills], ['等级', sm.level, r.level], ['最高连杀', sm.bestCombo, false],
-    ['首领击破', sm.bossKills, false], ['武器进化', sm.evolved, false], ['受到伤害', Math.round(sm.dmgTaken), false],
-  ].map(([k, v, rec]) => '<div class="st' + (rec ? ' rec' : '') + '"><div class="k">' + k + '</div><div class="v">' + v + '</div></div>').join('');
+    ['over.time', fmtTime(sm.time), r.time], ['over.kills', sm.kills, r.kills], ['over.level', sm.level, r.level], ['over.combo', sm.bestCombo, false],
+    ['over.bosses', sm.bossKills, false], ['over.evolved', sm.evolved, false], ['over.dmgTaken', Math.round(sm.dmgTaken), false],
+  ].map(([k, v, rec]) => '<div class="st' + (rec ? ' rec' : '') + '"><div class="k">' + esc(t(k)) + '</div><div class="v">' + v +
+    (rec ? '<span class="rec-tag">' + esc(t('over.newRecord')) + '</span>' : '') + '</div></div>').join('');
   const max = Math.max(1, ...sm.weapons.map((w) => w.dealt));
   const total = sm.weapons.reduce((a, w) => a + w.dealt, 0) || 1;
   $('o-weapons').innerHTML = sm.weapons.map((w) =>
     '<div class="dmg-row" style="--c:' + w.color + '"><img src="' + iconURL(w.id, w.evo) + '" alt=""><div class="nm">' + esc(w.name) + '</div><div class="bar"><i style="width:' + ((w.dealt / max) * 100).toFixed(1) + '%"></i></div><div class="num">' + fmtNum(w.dealt) + ' · ' + Math.round((w.dealt / total) * 100) + '%</div></div>').join('');
-  $('o-coins').innerHTML = '<span>拾取 ' + sm.coinsRun + '</span><span>结算奖励 ' + sm.bonus + '</span><div class="tot"><img class="coin-ico" src="' + iconURL('coin') + '" alt="">+' + sm.total + '</div>';
+  $('o-coins').innerHTML = '<span>' + esc(t('over.picked', { n: sm.coinsRun })) + '</span><span>' + esc(t('over.bonus', { n: sm.bonus })) + '</span><div class="tot"><img class="coin-ico" src="' + iconURL('coin') + '" alt="">+' + sm.total + '</div>';
   $('o-ach').innerHTML = sm.ach.map((a) => '<span class="chip">★ ' + esc(a.name) + ' +' + a.reward + '</span>').join('');
 }
 
@@ -338,15 +371,15 @@ function fmtNum(n) {
 // ---------------- wiring
 export function initUI() {
   for (const img of document.querySelectorAll('img.coin-ico')) if (!img.src) img.src = iconURL('coin', false, 64);
-  on('b-start', () => { sfx.click(); openChars(); });
+  on('b-start', () => { sfx.pick(); quickStart(); });
+  on('b-chars', () => { sfx.click(); openChars(); });
   on('b-shop', () => { sfx.click(); openShop('s-title'); });
   on('b-ach', () => { sfx.click(); renderAch(); show('s-ach'); });
   on('c-back', () => { sfx.click(); goTitle(); });
   on('c-go', () => { if (!meta.save.chars[selChar]) return; sfx.pick(); beginRun(selChar); });
   on('shop-back', () => { sfx.click(); if (shopReturn === 's-over') show('s-over'); else goTitle(); });
   on('shop-refund', () => {
-    if (!window.confirm('重置全部强化并退还金币？')) return;
-    refundAll(); sfx.coin(); renderShop();
+    askConfirm(t('shop.confirmRefund'), () => { refundAll(); sfx.coin(); renderShop(); });
   });
   on('ach-back', () => { sfx.click(); goTitle(); });
   on('b-reroll', () => { reroll(); });
@@ -354,7 +387,11 @@ export function initUI() {
   on('btn-pause', () => { if (togglePause(true)) sfx.click(); });
   on('btn-mute', () => toggleMute());
   on('p-resume', () => { sfx.click(); togglePause(false); });
-  on('p-quit', () => { if (window.confirm('放弃本局？已获得的金币仍会结算。')) quitRun(); });
+  on('p-quit', () => { askConfirm(t('pause.confirmQuit'), () => quitRun()); });
+  on('confirm-yes', () => { sfx.click(); closeConfirm(true); });
+  on('confirm-no', () => { sfx.click(); closeConfirm(false); });
+  on('t-lang', () => { sfx.click(); switchLang(); });
+  onPlatformSettings(() => applyAudio());
   const tog = (key) => () => { meta.save.settings[key] = !meta.save.settings[key]; saveMeta(); applyAudio(); sfx.click(); };
   on('t-music', tog('music')); on('p-music', tog('music'));
   on('t-sfx', tog('sfx')); on('p-sfx', tog('sfx'));
@@ -386,6 +423,11 @@ export function initUI() {
 }
 
 export function onKey(code) {
+  if (confirmYes) {
+    if (code === 'Escape') closeConfirm(false);
+    else if (code === 'Enter') closeConfirm(true);
+    return;
+  }
   if (current === 's-levelup') {
     if (code === 'Digit1' || code === 'Numpad1') pickCard(0);
     else if (code === 'Digit2' || code === 'Numpad2') pickCard(1);
@@ -401,7 +443,7 @@ export function onKey(code) {
     return;
   }
   if (code === 'KeyM') toggleMute();
-  if ((code === 'Enter' || code === 'Space') && current === 's-title') openChars();
+  if ((code === 'Enter' || code === 'Space') && current === 's-title') quickStart();
   else if ((code === 'Enter') && current === 's-chars' && meta.save.chars[selChar]) beginRun(selChar);
   else if ((code === 'Enter') && current === 's-over') beginRun(G.char ? G.char.id : selChar);
 }

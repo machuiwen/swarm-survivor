@@ -11,11 +11,14 @@ const DEF = {
     runs: 0, wins: 0, totalKills: 0, totalCoins: 0, bossKills: 0, evolutions: 0,
     bestTime: 0, bestKills: 0, bestLevel: 0, bestCombo: 0,
   },
-  settings: { muted: false, music: true, sfx: true, dmgNums: true, shake: true },
+  settings: { muted: false, music: true, sfx: true, dmgNums: true, shake: true, lang: '' },
   lastChar: 'nia',
 };
 
-export const meta = { save: loadSave(DEF) };
+// loaded by initMeta() once the platform SDK is ready, so the save can come from SDK.data
+export const meta = { save: null };
+
+export function initMeta() { meta.save = loadSave(DEF); }
 
 export function saveMeta() { writeSave(meta.save); }
 

@@ -5,6 +5,8 @@ import {
 } from './data.js';
 import { sfx, setIntensity } from './audio.js';
 import { meta, saveMeta, upLevel, checkAch } from './meta.js';
+import { t } from './i18n.js';
+import { happytime } from './platform.js';
 
 // ---------------------------------------------------------------- state
 export const G = {
@@ -220,7 +222,7 @@ function evolve(w) {
   sfx.evolve();
   const f = addFx(FXK.RING, G.p.x, G.p.y, 0.8, '#ffd23f'); f.r = 420;
   burst(G.p.x, G.p.y, CI_GOLD, 60, 420, 5, 0.9);
-  banner('进化！' + w.def.evo.name, 'evo');
+  banner(t('banner.evolve', { name: w.def.evo.name }), 'evo');
 }
 
 // ---------------------------------------------------------------- level-up options
@@ -230,29 +232,29 @@ function describe(o) {
     const def = WEAPONS.find((w) => w.id === o.id);
     out.color = def.color;
     if (o.kind === 'evo') {
-      out.name = def.evo.name; out.desc = def.evo.desc; out.tag = '进化'; out.lv = '终极形态'; out.evo = true;
+      out.name = def.evo.name; out.desc = def.evo.desc; out.tag = t('card.evo'); out.lv = t('card.evoLv'); out.evo = true;
     } else if (o.kind === 'wnew') {
-      out.name = def.name; out.desc = def.desc; out.tag = '新武器'; out.lv = 'Lv.1';
+      out.name = def.name; out.desc = def.desc; out.tag = t('card.newWeapon'); out.lv = t('card.lv', { n: 1 });
     } else {
       const w = G.weapons.find((x) => x.id === o.id);
-      out.name = def.name; out.desc = def.lv[w.level]; out.lv = 'Lv.' + (w.level + 1);
+      out.name = def.name; out.desc = def.lv[w.level]; out.lv = t('card.lv', { n: w.level + 1 });
       if (w.level + 1 === WEAPON_MAX) {
         const pdef = PASSIVES.find((p) => p.id === def.evo.with);
-        out.hint = '满级 + 「' + pdef.name + '」→ 开宝箱进化';
+        out.hint = t('card.evoHint', { item: pdef.name });
       }
     }
   } else if (o.kind === 'pnew' || o.kind === 'pup') {
     const def = PASSIVES.find((p) => p.id === o.id);
     out.color = def.color; out.name = def.name; out.desc = def.desc;
     const cur = plv(o.id);
-    out.lv = 'Lv.' + (cur + 1);
-    if (o.kind === 'pnew') out.tag = '新道具';
+    out.lv = t('card.lv', { n: cur + 1 });
+    if (o.kind === 'pnew') out.tag = t('card.newItem');
     const evoFor = WEAPONS.find((w) => w.evo.with === o.id && G.weapons.some((x) => x.id === w.id && !x.evo));
-    if (evoFor && o.kind === 'pnew') out.hint = '进化「' + evoFor.name + '」所需';
+    if (evoFor && o.kind === 'pnew') out.hint = t('card.evoNeed', { weapon: evoFor.name });
   } else if (o.kind === 'heal') {
-    out.name = '能量补给'; out.desc = '立即回复 40 生命'; out.icon = 'heal'; out.color = '#ff5c8a';
+    out.name = t('card.heal'); out.desc = t('card.healDesc'); out.icon = 'heal'; out.color = '#ff5c8a';
   } else if (o.kind === 'gold') {
-    out.name = '金币袋'; out.desc = '获得 25 金币'; out.icon = 'gold'; out.color = '#ffd23f';
+    out.name = t('card.gold'); out.desc = t('card.goldDesc'); out.icon = 'gold'; out.color = '#ffd23f';
   }
   return out;
 }
@@ -449,7 +451,7 @@ function spawnAtEdge(type) {
 
 function runEvent(ev) {
   const p = G.p;
-  banner(ev.text, ev.kind === 'boss' ? 'boss' : '');
+  banner(t(ev.msg), ev.kind === 'boss' ? 'boss' : '');
   switch (ev.kind) {
     case 'stream': {
       const a = Math.random() * TAU;
@@ -551,7 +553,8 @@ function killE(e, w, silent) {
     const f = addFx(FXK.RING, e.x, e.y, 0.9, e.def.color); f.r = 500;
     burst(e.x, e.y, CI_GOLD, 80, 500, 6, 1.2);
     setIntensity(G.t >= 300 ? 2 : 1);
-    banner('首领已击破！', 'evo');
+    banner(t('banner.bossDown'), 'evo');
+    if (!G.sim) happytime();
     if (e.def.boss === 'void') beginEnding(true);
   } else if (e.elite) {
     dropPick('chest', e.x, e.y);
@@ -601,7 +604,7 @@ function playerDown() {
     G.whiteFlash = 0.8;
     addShake(0.6);
     sfx.evolve();
-    banner('复活！', 'evo');
+    banner(t('banner.revive'), 'evo');
     const f = addFx(FXK.RING, p.x, p.y, 0.8, '#fff04a'); f.r = 520;
     const n = grid.query(p.x, p.y, 420, QA);
     for (let j = 0; j < n; j++) {
@@ -632,7 +635,8 @@ function beginEnding(won) {
       killE(e, null, true);
     }
     for (const b of EB) b.life = 0;
-    banner('胜利！黎明已至', 'evo');
+    banner(t('banner.win'), 'evo');
+    if (!G.sim) happytime();
   } else {
     p.dead = true;
     sfx.death();
@@ -1159,7 +1163,7 @@ function bossAI(e, dt, dx, dy, d) {
         if (e.timer <= 0) {
           e.st = 1; e.timer = 1.1;
           for (let k = 0; k < 7; k++) { const a = (k / 7) * TAU; spawnE('exploder', p.x + Math.cos(a) * 300, p.y + Math.sin(a) * 300, false, true); }
-          banner('虚空召唤！', '');
+          banner(t('banner.voidCall'), '');
         }
       } else if (e.st === 1) {
         e.cspd = 0;
@@ -1355,7 +1359,7 @@ function collect(k) {
       sfx.heal();
       break;
     }
-    case 'magnet': vacuum(); sfx.magnet(); banner('全屏吸取！', ''); break;
+    case 'magnet': vacuum(); sfx.magnet(); banner(t('banner.vacuum'), ''); break;
     case 'nuke': nukeAll(); break;
     case 'coin': {
       G.coinFrac += G.stats.greed;

@@ -6,8 +6,16 @@ import { render } from './render.js';
 import { initInput, readMove } from './input.js';
 import { initUI, updateHud, onKey, beginRun, goTitle, pickCard, show } from './ui.js';
 import { initAudio, suspendAudio } from './audio.js';
-import { meta, saveMeta } from './meta.js';
+import { meta, saveMeta, initMeta } from './meta.js';
 import { clearSave } from './util.js';
+import { setLang, detectLang } from './i18n.js';
+import { initPlatform, loadingStart, loadingStop, setGameplay, platformLocale, getEnv } from './platform.js';
+
+// the SDK (when present) must be ready before the save is read: on CrazyGames it lives in SDK.data
+await initPlatform();
+loadingStart();
+initMeta();
+setLang(detectLang(meta.save.settings.lang, platformLocale()));
 
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d', { alpha: false, desynchronized: true });
@@ -38,13 +46,18 @@ initInput(canvas, {
   onKey: (code) => { initAudio(); onKey(code); },
 });
 initUI();
+document.body.classList.remove('boot');
 
 // audio needs a user gesture (iOS: touchend / click)
 const unlock = () => initAudio();
 for (const ev of ['pointerdown', 'touchend', 'keydown', 'click']) window.addEventListener(ev, unlock, { passive: true });
 
-// stop pinch / double-tap zoom and page scrolling while playing
+// stop pinch / double-tap zoom and page scrolling while playing (also keeps a host page from scrolling)
 document.addEventListener('gesturestart', (e) => e.preventDefault());
+window.addEventListener('wheel', (e) => {
+  if (!e.target.closest || !e.target.closest('.screen')) e.preventDefault();
+}, { passive: false });
+document.addEventListener('contextmenu', (e) => e.preventDefault());
 document.addEventListener('dblclick', (e) => e.preventDefault());
 document.addEventListener('touchmove', (e) => {
   if (!e.target.closest || !e.target.closest('.screen')) e.preventDefault();
@@ -64,6 +77,7 @@ let fpsAcc = 0, fpsN = 0, slowT = 0, fastT = 0;
 G.fps = 60;
 G.updMs = 0; G.renMs = 0;
 const FROZEN = new Set(['levelup', 'chest', 'pause', 'over']);
+const PLAYING = new Set(['play', 'lvintro']);
 let lastMode = '';
 
 function loop(now) {
@@ -87,6 +101,8 @@ function loop(now) {
   G.updMs = G.updMs * 0.95 + (w1 - w0) * 0.05;
   G.renMs = G.renMs * 0.95 + (w2 - w1) * 0.05;
   lastMode = G.mode;
+  // tell the platform when the player is actually playing; tab switches are handled by the platform itself
+  if (!document.hidden) setGameplay(PLAYING.has(G.mode));
   // fps + adaptive quality
   fpsAcc += dt; fpsN++;
   if (fpsAcc >= 0.5) {
@@ -105,6 +121,15 @@ function loop(now) {
 }
 requestAnimationFrame(loop);
 
+// startup "loading": wait for the title font (short cap so a slow font never blocks play)
+try {
+  if (document.fonts && document.fonts.load) {
+    await Promise.race([document.fonts.load('900 40px Orbitron'), new Promise((r) => setTimeout(r, 1500))]);
+  }
+} catch (e) { /* ignore */ }
+needsDraw = true;
+loadingStop();
+
 // ---------------- debug hook for headless testing
 window.__game = {
   G,
@@ -114,7 +139,7 @@ window.__game = {
       mode: G.mode, t: +G.t.toFixed(2), level: G.level, xp: +G.xp.toFixed(1), kills: G.kills, enemies: E.length, gems: GEMS.length,
       proj: PROJ.length, particles: PT.n, fps: G.fps, hp: G.p ? Math.round(G.p.hp) : null, coins: Math.floor(G.coins),
       weapons: G.weapons.map((w) => w.id + ':' + w.level + (w.evo ? '*' : '')), passives: G.passives.map((p) => p.id + ':' + p.level),
-      renderScale, lowFx: G.lowFx, updMs: +G.updMs.toFixed(2), renMs: +G.renMs.toFixed(2), metaCoins: meta.save.coins, boss: G.boss ? G.boss.type : null,
+      env: getEnv(), renderScale, lowFx: G.lowFx, updMs: +G.updMs.toFixed(2), renMs: +G.renMs.toFixed(2), metaCoins: meta.save.coins, boss: G.boss ? G.boss.type : null,
     };
   },
   start(id = 'nia') { beginRun(id); return this.state(); },

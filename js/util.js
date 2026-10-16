@@ -1,3 +1,5 @@
+import { storageGet, storageSet, storageRemove } from './platform.js';
+
 export const TAU = Math.PI * 2;
 export const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 export const lerp = (a, b, t) => a + (b - a) * t;
@@ -34,6 +36,7 @@ export const bus = {
 };
 
 // ---- storage (always wrapped: private mode / blocked storage must not break the game) ----
+// On CrazyGames the save goes through SDK.data; elsewhere through localStorage (see platform.js).
 const KEY = 'swarm-survivor-save-v1';
 
 function deepMerge(def, o) {
@@ -52,7 +55,7 @@ function deepMerge(def, o) {
 
 export function loadSave(def) {
   try {
-    const s = localStorage.getItem(KEY);
+    const s = storageGet(KEY);
     if (!s) return deepMerge(def, {});
     return deepMerge(def, JSON.parse(s));
   } catch (e) {
@@ -61,11 +64,11 @@ export function loadSave(def) {
 }
 
 export function writeSave(o) {
-  try { localStorage.setItem(KEY, JSON.stringify(o)); } catch (e) { /* ignore */ }
+  try { storageSet(KEY, JSON.stringify(o)); } catch (e) { /* ignore */ }
 }
 
 export function clearSave() {
-  try { localStorage.removeItem(KEY); } catch (e) { /* ignore */ }
+  try { storageRemove(KEY); } catch (e) { /* ignore */ }
 }
 
 // ---- spatial hash grid centred on the player ----
