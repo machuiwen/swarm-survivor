@@ -1,0 +1,6 @@
+{
+  "name": "swarm-survivor",
+  "private": true,
+  "type": "module",
+  "description": "Static browser game. No build step: open index.html through any static web server."
+}

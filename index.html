@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="虫群幸存者">
+  <meta name="theme-color" content="#07060f">
+  <meta name="description" content="霓虹风格的割草生存游戏：只管走位，武器自动开火，在 15 分钟的虫潮中活下来。">
+  <title>虫群幸存者 Swarm Survivor</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%2307060f'/%3E%3Ccircle cx='32' cy='32' r='17' fill='none' stroke='%2338f6ff' stroke-width='4'/%3E%3Cpath d='M32 20 L40 32 L32 44 L24 32 Z' fill='%23ff4fd8'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700;900&display=swap">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <canvas id="game"></canvas>
+
+  <div id="hud" class="hidden">
+    <div id="xpbar"><div id="xpfill"></div><div id="lvl">Lv.1</div></div>
+    <div id="hud-top">
+      <div id="slots"></div>
+      <div id="hud-mid">
+        <div id="timer">00:00</div>
+        <div id="kills">击杀 0</div>
+      </div>
+      <div id="hud-right">
+        <div id="coins"><img class="coin-ico" alt=""><span id="coin-n">0</span></div>
+        <button id="btn-mute" class="icon-btn" aria-label="声音"></button>
+        <button id="btn-pause" class="icon-btn" aria-label="暂停"><span class="pause-bars"></span></button>
+      </div>
+    </div>
+    <div id="bossbar" class="hidden">
+      <div id="bossname"></div>
+      <div class="bar"><div id="bossfill"></div></div>
+    </div>
+    <div id="combo" class="hidden"><span id="combo-n">0</span><span class="combo-l">连杀</span></div>
+    <div id="banner"></div>
+  </div>
+
+  <section id="s-title" class="screen">
+    <div class="title-wrap">
+      <div class="logo"><span class="l1">SWARM</span><span class="l2">SURVIVOR</span></div>
+      <div class="subtitle">虫群幸存者</div>
+      <div class="menu">
+        <button id="b-start" class="btn big primary">开始游戏</button>
+        <button id="b-shop" class="btn big">强化商店</button>
+        <button id="b-ach" class="btn big">成就</button>
+      </div>
+      <div class="title-info">
+        <div class="coin-line"><img class="coin-ico" alt=""><span id="t-coins">0</span></div>
+        <div id="t-record" class="record"></div>
+      </div>
+      <div class="toggles">
+        <button id="t-music" class="chip">音乐：开</button>
+        <button id="t-sfx" class="chip">音效：开</button>
+      </div>
+      <div class="hint" id="t-hint">只管走位，武器会自动攻击。WASD / 方向键移动，Esc 暂停。</div>
+    </div>
+  </section>
+
+  <section id="s-chars" class="screen hidden">
+    <div class="panel">
+      <h2>选择角色</h2>
+      <div id="char-list" class="char-list"></div>
+      <div class="row-btns">
+        <button id="c-back" class="btn">返回</button>
+        <button id="c-go" class="btn primary">出发！</button>
+      </div>
+    </div>
+  </section>
+
+  <section id="s-shop" class="screen hidden">
+    <div class="panel wide">
+      <div class="panel-head">
+        <h2>强化商店</h2>
+        <div class="coin-line"><img class="coin-ico" alt=""><span id="shop-coins">0</span></div>
+      </div>
+      <p class="sub">永久强化，对所有角色生效。</p>
+      <div id="shop-list" class="shop-list"></div>
+      <div class="row-btns">
+        <button id="shop-refund" class="btn small ghost">重置强化（全额退还）</button>
+        <button id="shop-back" class="btn primary">返回</button>
+      </div>
+    </div>
+  </section>
+
+  <section id="s-ach" class="screen hidden">
+    <div class="panel wide">
+      <div class="panel-head">
+        <h2>成就</h2>
+        <div id="ach-count" class="sub"></div>
+      </div>
+      <div id="ach-list" class="ach-list"></div>
+      <div id="ach-stats" class="stat-grid"></div>
+      <div class="row-btns"><button id="ach-back" class="btn primary">返回</button></div>
+    </div>
+  </section>
+
+  <section id="s-levelup" class="screen overlay hidden">
+    <div class="lv-wrap">
+      <div class="lv-title">升级！</div>
+      <div class="lv-sub">选择一项强化</div>
+      <div id="cards" class="cards"></div>
+      <div class="lv-actions">
+        <button id="b-reroll" class="btn small">刷新选项（<span id="reroll-n">0</span>）</button>
+      </div>
+    </div>
+  </section>
+
+  <section id="s-chest" class="screen overlay hidden">
+    <div class="chest-wrap">
+      <div class="chest-glow"></div>
+      <img id="chest-img" class="chest-img" alt="">
+      <div class="chest-title">宝箱！</div>
+      <div id="chest-items" class="chest-items"></div>
+      <div id="chest-coins" class="chest-coins"></div>
+      <button id="chest-ok" class="btn primary">收下</button>
+    </div>
+  </section>
+
+  <section id="s-pause" class="screen overlay hidden">
+    <div class="panel wide">
+      <h2>暂停</h2>
+      <div class="pause-cols">
+        <div>
+          <h3>武器</h3>
+          <div id="p-weapons" class="build-list"></div>
+          <h3>道具</h3>
+          <div id="p-passives" class="build-list"></div>
+        </div>
+        <div>
+          <h3>属性</h3>
+          <div id="p-stats" class="stat-grid"></div>
+          <h3>设置</h3>
+          <div class="toggles left">
+            <button id="p-music" class="chip">音乐：开</button>
+            <button id="p-sfx" class="chip">音效：开</button>
+            <button id="p-nums" class="chip">伤害数字：开</button>
+            <button id="p-shake" class="chip">屏幕震动：开</button>
+          </div>
+        </div>
+      </div>
+      <div class="row-btns">
+        <button id="p-quit" class="btn ghost">放弃本局</button>
+        <button id="p-resume" class="btn primary">继续</button>
+      </div>
+    </div>
+  </section>
+
+  <section id="s-over" class="screen hidden">
+    <div class="panel wide">
+      <h2 id="o-title">阵亡</h2>
+      <div id="o-sub" class="sub"></div>
+      <div id="o-stats" class="stat-grid big"></div>
+      <h3>武器伤害</h3>
+      <div id="o-weapons" class="dmg-list"></div>
+      <div id="o-coins" class="coin-break"></div>
+      <div id="o-ach" class="o-ach"></div>
+      <div class="row-btns">
+        <button id="o-home" class="btn">主页</button>
+        <button id="o-shop" class="btn">强化商店</button>
+        <button id="o-again" class="btn primary">再来一局</button>
+      </div>
+    </div>
+  </section>
+
+  <div id="toasts"></div>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
